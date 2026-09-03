@@ -758,7 +758,7 @@ impl HeadlessServer {
         let cell_size = client.cell_size;
         let (cols, rows) = self.effective_size;
         let area = Rect::new(0, 0, cols, rows);
-        if self.app.state.kitty_graphics_enabled && cell_size.is_known() {
+        if cell_size.is_known() {
             crate::ui::compute_view_with_cell_size(
                 &mut self.app.state,
                 &self.app.terminal_runtimes,
@@ -836,8 +836,7 @@ impl HeadlessServer {
         };
 
         let terminal_size = client.terminal_size;
-        let host_cell_size = if self.app.state.kitty_graphics_enabled && client.cell_size.is_known()
-        {
+        let host_cell_size = if client.cell_size.is_known() {
             client.cell_size
         } else {
             crate::kitty_graphics::HostCellSize::default()

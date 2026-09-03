@@ -2956,6 +2956,44 @@ fn terminal_clients_store_known_cell_geometry_independently_of_pixel_mouse() {
 }
 
 #[test]
+fn host_cell_size_follows_client_geometry_without_kitty_graphics() {
+    let mut server = test_headless_server();
+    server.app.state.kitty_graphics_enabled = false;
+    server.clients.insert(
+        11,
+        ClientConnection::new_with_mode(
+            ClientConnectionMode::ClientShell,
+            (80, 24),
+            crate::kitty_graphics::HostCellSize {
+                width_px: 10,
+                height_px: 20,
+            },
+            1,
+            RenderEncoding::SemanticFrame,
+            None,
+        ),
+    );
+    server
+        .clients
+        .get_mut(&11)
+        .expect("shell client")
+        .pixel_mouse = true;
+    server.foreground_client_id = Some(11);
+    server.sync_foreground_client_state();
+
+    assert!(!server.app.state.kitty_graphics_enabled);
+    assert!(!server.app.direct_graphics_available);
+    assert_eq!(
+        server.app.state.host_cell_size,
+        crate::kitty_graphics::HostCellSize {
+            width_px: 10,
+            height_px: 20,
+        }
+    );
+    assert!(server.app.pixel_mouse_available);
+}
+
+#[test]
 fn terminal_attach_rejects_missing_terminal_and_removes_client() {
     let mut server = test_headless_server();
     let (writer, control_rx, _render_rx) = test_client_writer();

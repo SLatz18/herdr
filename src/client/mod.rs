@@ -82,7 +82,10 @@ use handshake::{
     advertised_pixel_mouse, direct_graphics_profile_values, handshake_read_timeout,
     REMOTE_HANDSHAKE_READ_TIMEOUT,
 };
-use handshake::{client_shell_keybinding_source, do_handshake, is_remote_client_process};
+use handshake::{
+    client_shell_keybinding_source, do_handshake, is_remote_client_process,
+    pixel_geometry_collection_enabled,
+};
 use notifications::{handle_notify, handle_shell_notification_effects};
 #[cfg(test)]
 use notifications::{handle_notify_with_notifiers, sound_from_notify_message};
@@ -373,7 +376,10 @@ fn run_client_with_mode(
     let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
     let kitty_graphics_enabled =
         loaded_config.config.experimental.kitty_graphics && client_rendered_shell;
-    let pixel_geometry_enabled = kitty_graphics_enabled || attach_escape.is_some();
+    // Ioctl pixel geometry is for honest SGR 1016, not kitty-graphics.
+    // XTWINOPS fallback / file-frame stay behind kitty_graphics_enabled.
+    let pixel_geometry_enabled =
+        pixel_geometry_collection_enabled(client_rendered_shell, attach_escape.is_some());
     let loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,
