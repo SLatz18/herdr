@@ -54,6 +54,15 @@ pub(super) fn handshake_read_timeout() -> Duration {
     LOCAL_HANDSHAKE_READ_TIMEOUT
 }
 
+/// Exact-geometry SGR 1016 capability advertised to the server.
+///
+/// Independent of direct-kitty / file-frame transport. `herdr --remote`
+/// (`is_remote_client_process`), SSH, and tmux still offer pixel mouse when
+/// the host cell size is known.
+pub(super) fn advertised_pixel_mouse(exact_cell_size: bool) -> bool {
+    exact_cell_size && cfg!(unix)
+}
+
 #[cfg(any(unix, test))]
 pub(super) fn direct_graphics_profile_values(
     term_program: &str,
@@ -150,7 +159,7 @@ pub(super) fn do_handshake(
             cell_width_px,
             cell_height_px,
             surface_size,
-            pixel_mouse: exact_cell_size && cfg!(unix),
+            pixel_mouse: advertised_pixel_mouse(exact_cell_size),
             direct_graphics: exact_cell_size
                 && cell_width_px > 0
                 && cell_height_px > 0
@@ -175,7 +184,7 @@ pub(super) fn do_handshake(
             rows,
             cell_width_px,
             cell_height_px,
-            pixel_mouse: exact_cell_size && cfg!(unix),
+            pixel_mouse: advertised_pixel_mouse(exact_cell_size),
         }
     };
     protocol::write_message(stream, &hello)

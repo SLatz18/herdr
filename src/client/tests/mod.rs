@@ -69,6 +69,20 @@ fn direct_graphics_profile_is_narrow_and_transport_safe() {
     ));
 }
 
+#[test]
+fn advertised_pixel_mouse_is_independent_of_remote_transport_gate() {
+    // `herdr --remote` (`is_remote_client_process`), SSH, and tmux set
+    // blocked_transport=true, which kills file-frame / direct-kitty.
+    assert!(!direct_graphics_profile_values(
+        "ghostty", "", false, true, true
+    ));
+    assert!(direct_graphics_profile_values(
+        "ghostty", "", false, false, true
+    ));
+    assert_eq!(advertised_pixel_mouse(true), cfg!(unix));
+    assert!(!advertised_pixel_mouse(false));
+}
+
 fn restore_env_var(key: &str, value: Option<OsString>) {
     if let Some(value) = value {
         std::env::set_var(key, value);

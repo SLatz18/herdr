@@ -58,6 +58,40 @@ pub(super) fn ghostty_mods_from_key_modifiers(modifiers: crossterm::event::KeyMo
     ghostty_mods
 }
 
+pub(super) fn promote_sgr_pixel_position(
+    terminal: &crate::ghostty::Terminal,
+    position: crate::input::mouse::Position,
+) -> crate::input::mouse::Position {
+    let crate::input::mouse::Position::Cell { column, row } = position else {
+        return position;
+    };
+    if !terminal
+        .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+        .ok()
+        .unwrap_or(false)
+    {
+        return position;
+    }
+    let (Ok(width_px), Ok(height_px), Ok(cols), Ok(rows)) = (
+        terminal.width_px(),
+        terminal.height_px(),
+        terminal.cols(),
+        terminal.rows(),
+    ) else {
+        return position;
+    };
+    if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
+        return position;
+    }
+    let Some(x) = crate::input::mouse::cell_origin_pixel(column, cols as u16, width_px) else {
+        return position;
+    };
+    let Some(y) = crate::input::mouse::cell_origin_pixel(row, rows as u16, height_px) else {
+        return position;
+    };
+    crate::input::mouse::Position::Pixels { x, y }
+}
+
 pub(super) fn ghostty_mouse_encoder_for_terminal(
     terminal: &crate::ghostty::Terminal,
     position: crate::input::mouse::Position,

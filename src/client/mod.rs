@@ -77,11 +77,12 @@ use frame_output::{
     contains_kitty_graphics_bytes, record_received_kitty_graphics,
     write_encoded_frame_with_graphics,
 };
-use handshake::{client_shell_keybinding_source, do_handshake, is_remote_client_process};
 #[cfg(test)]
 use handshake::{
-    direct_graphics_profile_values, handshake_read_timeout, REMOTE_HANDSHAKE_READ_TIMEOUT,
+    advertised_pixel_mouse, direct_graphics_profile_values, handshake_read_timeout,
+    REMOTE_HANDSHAKE_READ_TIMEOUT,
 };
+use handshake::{client_shell_keybinding_source, do_handshake, is_remote_client_process};
 use notifications::{handle_notify, handle_shell_notification_effects};
 #[cfg(test)]
 use notifications::{handle_notify_with_notifiers, sound_from_notify_message};

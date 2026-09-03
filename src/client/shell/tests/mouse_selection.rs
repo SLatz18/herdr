@@ -508,6 +508,49 @@ fn pane_pixel_mouse_preserves_pane_relative_pixel_coordinates() {
 }
 
 #[test]
+fn pane_pixel_mouse_maps_cell_column_four_to_pixel_boundary_not_cell_index() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    let mut pane_surface = surface();
+    pane_surface.panes[0].rect = crate::protocol::SurfaceRect {
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 10,
+    };
+    pane_surface.panes[0].inner_rect = crate::protocol::SurfaceRect {
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 10,
+    };
+    pane_surface.panes[0].mouse_reporting = true;
+    pane_surface.panes[0].sgr_pixel_mouse = true;
+    pane_surface.panes[0].pixel_width = 200;
+    pane_surface.panes[0].pixel_height = 200;
+    state.set_pane_surface(pane_surface);
+    state.compose(20, 10).expect("composed frame");
+    let geometry = crate::input::mouse::HostGeometry::new(20, 10, 200, 200).expect("host geometry");
+
+    let outcome = state.handle_pixel_mouse(b"\x1b[<0;41;21M", geometry);
+    assert!(matches!(
+        &outcome.requests[..],
+        [ClientMessage::ClientShellPaneInput { pane_id, events }]
+            if pane_id == "pane_1"
+                && matches!(
+                    &events[..],
+                    [ClientPaneInputEvent::Mouse {
+                        kind: crate::protocol::ClientMouseKind::Down(
+                            crate::protocol::ClientMouseButton::Left
+                        ),
+                        position: ClientMousePosition::Pixels { x, column: 4, .. },
+                        ..
+                    }] if *x >= 40 && *x <= 50 && *x != 5
+                )
+    ));
+}
+
+#[test]
 fn pane_owned_right_click_forwards_the_complete_gesture() {
     let mut snapshot = snapshot();
     snapshot.panes[0].right_click_passthrough = true;

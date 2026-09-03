@@ -169,6 +169,11 @@ fn boundary(index: u16, count: u16, extent: u32) -> Option<u32> {
         .then(|| (u64::from(index) * u64::from(extent) / u64::from(count)) as u32)
 }
 
+/// 1-based SGR pixel at the origin of `cell` in a `count`-cell axis of `extent` px.
+pub(crate) fn cell_origin_pixel(cell: u16, count: u16, extent: u32) -> Option<u32> {
+    boundary(cell, count, extent).map(|start| start.saturating_add(1))
+}
+
 fn grid_cell(pixel: u32, count: u16, extent: u32) -> Option<u16> {
     if count == 0 || extent == 0 || pixel >= extent {
         return None;
@@ -240,6 +245,13 @@ mod tests {
             .pane_position(ratatui::layout::Rect::new(0, 0, 80, 1), 800, 20),
             Some(Position::Pixels { x: 11, y: 1 })
         );
+    }
+
+    #[test]
+    fn cell_origin_pixel_is_the_one_based_boundary_not_the_cell_index() {
+        assert_eq!(cell_origin_pixel(4, 80, 800), Some(41));
+        assert_eq!(cell_origin_pixel(0, 80, 800), Some(1));
+        assert_ne!(cell_origin_pixel(4, 80, 800), Some(5));
     }
 
     #[test]

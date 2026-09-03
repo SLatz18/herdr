@@ -2631,6 +2631,126 @@ async fn client_shell_mouse_motion_promotes_and_requests_render() {
     shutdown_test_runtimes(&mut server);
 }
 
+#[tokio::test]
+async fn client_shell_pixel_mouse_reaches_child_pty_without_graphics() {
+    let mut server = test_headless_server();
+    let mut input_rx =
+        install_focused_test_runtime(&mut server, b"\x1b[?1003h\x1b[?1006h\x1b[?1016h");
+    let pane_id = server.app.session_snapshot().focused_pane_id.unwrap();
+    server.clients.insert(
+        11,
+        ClientConnection::new_with_mode(
+            ClientConnectionMode::ClientShell,
+            (80, 24),
+            crate::kitty_graphics::HostCellSize {
+                width_px: 10,
+                height_px: 20,
+            },
+            1,
+            RenderEncoding::SemanticFrame,
+            None,
+        ),
+    );
+    let client = server.clients.get_mut(&11).expect("shell client");
+    client.pixel_mouse = true;
+    client.host_sgr_pixels_active = Some(true);
+    client.direct_graphics = false;
+    server.foreground_client_id = Some(11);
+    assert!(server.claim_unowned_shell_tab_geometry(11, false));
+    let runtime_pane = server.app.state.workspaces[0].tabs[0].root_pane;
+    server.app.state.workspaces[0].test_runtimes[&runtime_pane].resize(24, 80, 10, 20);
+
+    assert!(
+        server.handle_server_event(ServerEvent::ClientShellPaneInput {
+            client_id: 11,
+            pane_id,
+            events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
+                kind: crate::protocol::ClientMouseKind::Down(
+                    crate::protocol::ClientMouseButton::Left
+                ),
+                position: crate::protocol::ClientMousePosition::Pixels {
+                    x: 41,
+                    y: 21,
+                    column: 4,
+                    row: 1,
+                },
+                geometry: Some(crate::protocol::ClientMouseGeometry {
+                    cols: 80,
+                    rows: 24,
+                    width_px: 800,
+                    height_px: 480,
+                }),
+                modifiers: 0,
+                lines: 1,
+            }],
+        })
+    );
+
+    assert_eq!(
+        input_rx.try_recv().expect("encoded pane-local pixels"),
+        Bytes::from_static(b"\x1b[<0;41;21M")
+    );
+    assert_ne!(
+        input_rx.try_recv().unwrap_or_default().as_ref(),
+        b"\x1b[<0;5;2M"
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn client_shell_cell_click_in_column_four_encodes_pixels_when_1016_set() {
+    let mut server = test_headless_server();
+    let mut input_rx =
+        install_focused_test_runtime(&mut server, b"\x1b[?1003h\x1b[?1006h\x1b[?1016h");
+    let pane_id = server.app.session_snapshot().focused_pane_id.unwrap();
+    server.clients.insert(
+        11,
+        ClientConnection::new_with_mode(
+            ClientConnectionMode::ClientShell,
+            (80, 24),
+            crate::kitty_graphics::HostCellSize {
+                width_px: 10,
+                height_px: 20,
+            },
+            1,
+            RenderEncoding::SemanticFrame,
+            None,
+        ),
+    );
+    let client = server.clients.get_mut(&11).expect("shell client");
+    client.pixel_mouse = true;
+    client.host_sgr_pixels_active = Some(true);
+    client.direct_graphics = false;
+    server.foreground_client_id = Some(11);
+    assert!(server.claim_unowned_shell_tab_geometry(11, false));
+    let runtime_pane = server.app.state.workspaces[0].tabs[0].root_pane;
+    server.app.state.workspaces[0].test_runtimes[&runtime_pane].resize(24, 80, 10, 20);
+
+    assert!(
+        server.handle_server_event(ServerEvent::ClientShellPaneInput {
+            client_id: 11,
+            pane_id,
+            events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
+                kind: crate::protocol::ClientMouseKind::Down(
+                    crate::protocol::ClientMouseButton::Left
+                ),
+                position: crate::protocol::ClientMousePosition::Cell { column: 4, row: 0 },
+                geometry: None,
+                modifiers: 0,
+                lines: 1,
+            }],
+        })
+    );
+
+    assert_eq!(
+        input_rx
+            .try_recv()
+            .expect("cell column 4 must encode as pane-local pixels"),
+        Bytes::from_static(b"\x1b[<0;41;1M")
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
 fn install_focused_test_runtime(
     server: &mut HeadlessServer,
     terminal_bytes: &[u8],
