@@ -83,10 +83,10 @@ pub(super) fn promote_sgr_pixel_position(
     if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
         return position;
     }
-    let Some(x) = crate::input::mouse::cell_origin_pixel(column, cols as u16, width_px) else {
+    let Some(x) = crate::input::mouse::cell_origin_pixel(column, cols, width_px) else {
         return position;
     };
-    let Some(y) = crate::input::mouse::cell_origin_pixel(row, rows as u16, height_px) else {
+    let Some(y) = crate::input::mouse::cell_origin_pixel(row, rows, height_px) else {
         return position;
     };
     crate::input::mouse::Position::Pixels { x, y }

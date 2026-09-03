@@ -529,10 +529,15 @@ fn pane_pixel_mouse_maps_cell_column_four_to_pixel_boundary_not_cell_index() {
     pane_surface.panes[0].pixel_width = 200;
     pane_surface.panes[0].pixel_height = 200;
     state.set_pane_surface(pane_surface);
-    state.compose(20, 10).expect("composed frame");
-    let geometry = crate::input::mouse::HostGeometry::new(20, 10, 200, 200).expect("host geometry");
+    state.compose(106, 20).expect("composed frame");
+    let pane = state.hits.panes[0].clone();
+    let geometry =
+        crate::input::mouse::HostGeometry::new(106, 20, 1060, 400).expect("host geometry");
+    let x = u32::from(pane.inner_rect.x + 4) * 10 + 1;
+    let y = u32::from(pane.inner_rect.y) * 20 + 1;
+    let report = format!("\x1b[<0;{x};{y}M");
 
-    let outcome = state.handle_pixel_mouse(b"\x1b[<0;41;21M", geometry);
+    let outcome = state.handle_pixel_mouse(report.as_bytes(), geometry);
     assert!(matches!(
         &outcome.requests[..],
         [ClientMessage::ClientShellPaneInput { pane_id, events }]

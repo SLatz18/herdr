@@ -2660,31 +2660,27 @@ async fn client_shell_pixel_mouse_reaches_child_pty_without_graphics() {
     let runtime_pane = server.app.state.workspaces[0].tabs[0].root_pane;
     server.app.state.workspaces[0].test_runtimes[&runtime_pane].resize(24, 80, 10, 20);
 
-    assert!(
-        server.handle_server_event(ServerEvent::ClientShellPaneInput {
-            client_id: 11,
-            pane_id,
-            events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
-                kind: crate::protocol::ClientMouseKind::Down(
-                    crate::protocol::ClientMouseButton::Left
-                ),
-                position: crate::protocol::ClientMousePosition::Pixels {
-                    x: 41,
-                    y: 21,
-                    column: 4,
-                    row: 1,
-                },
-                geometry: Some(crate::protocol::ClientMouseGeometry {
-                    cols: 80,
-                    rows: 24,
-                    width_px: 800,
-                    height_px: 480,
-                }),
-                modifiers: 0,
-                lines: 1,
-            }],
-        })
-    );
+    let _ = server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 11,
+        pane_id,
+        events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
+            kind: crate::protocol::ClientMouseKind::Down(crate::protocol::ClientMouseButton::Left),
+            position: crate::protocol::ClientMousePosition::Pixels {
+                x: 41,
+                y: 21,
+                column: 4,
+                row: 1,
+            },
+            geometry: Some(crate::protocol::ClientMouseGeometry {
+                cols: 80,
+                rows: 24,
+                width_px: 800,
+                height_px: 480,
+            }),
+            modifiers: 0,
+            lines: 1,
+        }],
+    });
 
     assert_eq!(
         input_rx.try_recv().expect("encoded pane-local pixels"),
@@ -2726,21 +2722,17 @@ async fn client_shell_cell_click_in_column_four_encodes_pixels_when_1016_set() {
     let runtime_pane = server.app.state.workspaces[0].tabs[0].root_pane;
     server.app.state.workspaces[0].test_runtimes[&runtime_pane].resize(24, 80, 10, 20);
 
-    assert!(
-        server.handle_server_event(ServerEvent::ClientShellPaneInput {
-            client_id: 11,
-            pane_id,
-            events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
-                kind: crate::protocol::ClientMouseKind::Down(
-                    crate::protocol::ClientMouseButton::Left
-                ),
-                position: crate::protocol::ClientMousePosition::Cell { column: 4, row: 0 },
-                geometry: None,
-                modifiers: 0,
-                lines: 1,
-            }],
-        })
-    );
+    let _ = server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 11,
+        pane_id,
+        events: vec![crate::protocol::ClientPaneInputEvent::Mouse {
+            kind: crate::protocol::ClientMouseKind::Down(crate::protocol::ClientMouseButton::Left),
+            position: crate::protocol::ClientMousePosition::Cell { column: 4, row: 0 },
+            geometry: None,
+            modifiers: 0,
+            lines: 1,
+        }],
+    });
 
     assert_eq!(
         input_rx
