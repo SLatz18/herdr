@@ -23,13 +23,13 @@ mod handshake;
 mod input;
 mod notifications;
 mod shell;
-#[cfg(test)]
-pub(crate) use shell::{ClientShellConfig, ClientShellState};
 mod terminal_geometry;
 mod terminal_sessions;
 mod terminal_setup;
 mod timer;
 
+#[cfg(test)]
+pub(crate) use shell::{ClientShellConfig, ClientShellState};
 pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
 
 #[cfg(not(windows))]
@@ -77,14 +77,10 @@ use frame_output::{
     contains_kitty_graphics_bytes, record_received_kitty_graphics,
     write_encoded_frame_with_graphics,
 };
+use handshake::{client_shell_keybinding_source, do_handshake, is_remote_client_process};
 #[cfg(test)]
 use handshake::{
-    advertised_pixel_mouse, direct_graphics_profile_values, handshake_read_timeout,
-    REMOTE_HANDSHAKE_READ_TIMEOUT,
-};
-use handshake::{
-    client_shell_keybinding_source, do_handshake, is_remote_client_process,
-    pixel_geometry_collection_enabled,
+    direct_graphics_profile_values, handshake_read_timeout, REMOTE_HANDSHAKE_READ_TIMEOUT,
 };
 use notifications::{handle_notify, handle_shell_notification_effects};
 #[cfg(test)]
@@ -376,10 +372,7 @@ fn run_client_with_mode(
     let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
     let kitty_graphics_enabled =
         loaded_config.config.experimental.kitty_graphics && client_rendered_shell;
-    // Ioctl pixel geometry is for honest SGR 1016, not kitty-graphics.
-    // XTWINOPS fallback / file-frame stay behind kitty_graphics_enabled.
-    let pixel_geometry_enabled =
-        pixel_geometry_collection_enabled(client_rendered_shell, attach_escape.is_some());
+    let pixel_geometry_enabled = cfg!(unix) && (client_rendered_shell || attach_escape.is_some());
     let loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,

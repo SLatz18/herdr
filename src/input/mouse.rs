@@ -10,8 +10,6 @@ pub(crate) struct HostGeometry {
     pub(crate) rows: u16,
     pub(crate) width_px: u32,
     pub(crate) height_px: u32,
-    cell_width_px: u32,
-    cell_height_px: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,108 +19,53 @@ pub(crate) struct HostPixels {
     pub(crate) geometry: HostGeometry,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HostAxis {
-    count: u16,
-    cell: u32,
-}
-
 impl HostGeometry {
     pub(crate) fn new(cols: u16, rows: u16, width_px: u32, height_px: u32) -> Option<Self> {
-        Self::with_cell_size(cols, rows, width_px, height_px, 0, 0)
-    }
-
-    pub(crate) fn with_cell_size(
-        cols: u16,
-        rows: u16,
-        width_px: u32,
-        height_px: u32,
-        cell_width_px: u32,
-        cell_height_px: u32,
-    ) -> Option<Self> {
         (cols > 0 && rows > 0 && width_px > 0 && height_px > 0).then_some(Self {
             cols,
             rows,
-            width_px,
-            height_px,
-            cell_width_px,
-            cell_height_px,
+            // Drop fixed window padding (`ws_xpixel - cols * cell`). Stretching
+            // that leftover as `index * extent / cols` slips SGR-Pixels left.
+            width_px: (width_px / u32::from(cols)).max(1) * u32::from(cols),
+            height_px: (height_px / u32::from(rows)).max(1) * u32::from(rows),
         })
     }
 
     #[cfg(unix)]
     pub(crate) fn current_with_cell_size(cell_size: Option<(u32, u32)>) -> Option<Self> {
         let size = crossterm::terminal::window_size().ok()?;
-        let (cell_width_px, cell_height_px) = cell_size.unwrap_or((0, 0));
-        Self::with_cell_size(
-            size.columns,
-            size.rows,
-            u32::from(size.width),
-            u32::from(size.height),
-            cell_width_px,
-            cell_height_px,
-        )
+        let ioctl_width = u32::from(size.width);
+        let ioctl_height = u32::from(size.height);
+        let (width_px, height_px) = match cell_size {
+            Some((cell_width, cell_height)) => {
+                let width = u32::from(size.columns).saturating_mul(cell_width);
+                let height = u32::from(size.rows).saturating_mul(cell_height);
+                if width > 0 && height > 0 && width <= ioctl_width && height <= ioctl_height {
+                    (width, height)
+                } else {
+                    (ioctl_width, ioctl_height)
+                }
+            }
+            None => (ioctl_width, ioctl_height),
+        };
+        Self::new(size.columns, size.rows, width_px, height_px)
     }
 
     pub(crate) fn cell(self, x: u32, y: u32) -> Option<(u16, u16)> {
         Some((
-            self.x_axis().grid_cell(x.checked_sub(1)?)?,
-            self.y_axis().grid_cell(y.checked_sub(1)?)?,
+            grid_cell(x.checked_sub(1)?, self.cols, self.width_px)?,
+            grid_cell(y.checked_sub(1)?, self.rows, self.height_px)?,
         ))
-    }
-
-    fn x_axis(self) -> HostAxis {
-        HostAxis::new(self.cols, self.width_px, self.cell_width_px)
-    }
-
-    fn y_axis(self) -> HostAxis {
-        HostAxis::new(self.rows, self.height_px, self.cell_height_px)
     }
 
     #[cfg(test)]
     fn column_boundary(self, column: u16) -> Option<u32> {
-        self.x_axis().boundary(column)
+        boundary(column, self.cols, self.width_px)
     }
 
     #[cfg(test)]
     fn row_boundary(self, row: u16) -> Option<u32> {
-        self.y_axis().boundary(row)
-    }
-
-    #[cfg(test)]
-    fn column_padding(self) -> u32 {
-        self.width_px
-            .saturating_sub(u32::from(self.cols).saturating_mul(self.x_axis().cell))
-    }
-}
-
-impl HostAxis {
-    fn new(count: u16, extent: u32, cell: u32) -> Self {
-        let derived = (extent / u32::from(count.max(1))).max(1);
-        let cell = if cell > 0 && u32::from(count).saturating_mul(cell) <= extent {
-            cell
-        } else {
-            derived
-        };
-        Self { count, cell }
-    }
-
-    /// Content-space origin of cell `index`.
-    ///
-    /// Ghostty SGR-Pixels is terminal-space (window padding already removed).
-    /// Ioctl leftover `padding = ws_xpixel - cols * cell` is a fixed inset in
-    /// the window, not extra pitch: do not use `index * ws_xpixel / cols`.
-    fn boundary(self, index: u16) -> Option<u32> {
-        (index <= self.count).then_some(u32::from(index) * self.cell)
-    }
-
-    fn grid_cell(self, pixel: u32) -> Option<u16> {
-        let content_extent = u32::from(self.count).saturating_mul(self.cell);
-        if self.count == 0 || self.cell == 0 || pixel >= content_extent {
-            return None;
-        }
-        let cell = pixel / self.cell;
-        u16::try_from(cell).ok().filter(|cell| *cell < self.count)
+        boundary(row, self.rows, self.height_px)
     }
 }
 
@@ -149,7 +92,8 @@ impl HostPixels {
                 host_column,
                 inner.x,
                 inner.width,
-                self.geometry.x_axis(),
+                self.geometry.cols,
+                self.geometry.width_px,
                 child_width_px,
             )?,
             y: map_axis_within_cell(
@@ -157,7 +101,8 @@ impl HostPixels {
                 host_row,
                 inner.y,
                 inner.height,
-                self.geometry.y_axis(),
+                self.geometry.rows,
+                self.geometry.height_px,
                 child_height_px,
             )?,
         })
@@ -169,15 +114,16 @@ fn map_axis_within_cell(
     host_cell: u16,
     pane_start: u16,
     pane_cells: u16,
-    host: HostAxis,
+    host_cells: u16,
+    host_extent: u32,
     child_extent: u32,
 ) -> Option<u32> {
     let local_cell = host_cell.checked_sub(pane_start)?;
     if local_cell >= pane_cells {
         return None;
     }
-    let source_start = host.boundary(host_cell)?;
-    let source_end = host.boundary(host_cell.checked_add(1)?)?;
+    let source_start = boundary(host_cell, host_cells, host_extent)?;
+    let source_end = boundary(host_cell.checked_add(1)?, host_cells, host_extent)?;
     let target_start = boundary(local_cell, pane_cells, child_extent)?;
     let target_end = boundary(local_cell.checked_add(1)?, pane_cells, child_extent)?;
     let source_width = source_end.checked_sub(source_start)?;
@@ -234,9 +180,12 @@ fn boundary(index: u16, count: u16, extent: u32) -> Option<u32> {
         .then(|| (u64::from(index) * u64::from(extent) / u64::from(count)) as u32)
 }
 
-/// 1-based SGR pixel at the origin of `cell` in a `count`-cell axis of `extent` px.
-pub(crate) fn cell_origin_pixel(cell: u16, count: u16, extent: u32) -> Option<u32> {
-    boundary(cell, count, extent).map(|start| start.saturating_add(1))
+fn grid_cell(pixel: u32, count: u16, extent: u32) -> Option<u16> {
+    if count == 0 || extent == 0 || pixel >= extent {
+        return None;
+    }
+    let cell = ((u64::from(pixel) + 1) * u64::from(count) - 1) / u64::from(extent);
+    u16::try_from(cell).ok().filter(|cell| *cell < count)
 }
 
 fn scale(pixel: u32, source: u32, target: u32) -> u32 {
@@ -263,8 +212,9 @@ mod tests {
 
     #[test]
     fn integer_cell_pitch_maps_pane_pixels_without_stretching_padding() {
-        let geometry = HostGeometry::with_cell_size(211, 57, 2_537, 1_429, 12, 25).unwrap();
-        assert_eq!(geometry.column_padding(), 5);
+        let geometry = HostGeometry::new(211, 57, 2_537, 1_429).unwrap();
+        assert_eq!(geometry.width_px, 2_532);
+        assert_eq!(geometry.height_px, 1_425);
         let inner = ratatui::layout::Rect::new(157, 7, 53, 49);
         let start_x = geometry.column_boundary(inner.x).unwrap();
         let end_x = geometry.column_boundary(inner.x + inner.width).unwrap();
@@ -293,15 +243,8 @@ mod tests {
     #[test]
     fn padded_ioctl_extent_keeps_late_column_click_in_the_right_half() {
         // Ghostty-style leftover: 1276px / 127 cols with a true 10px cell.
-        let geometry = HostGeometry::with_cell_size(127, 24, 1_276, 480, 10, 20).unwrap();
-        assert_eq!(geometry.column_padding(), 6);
-        assert_eq!(
-            HostGeometry::new(127, 24, 1_276, 480)
-                .unwrap()
-                .x_axis()
-                .cell,
-            10
-        );
+        let geometry = HostGeometry::new(127, 24, 1_276, 480).unwrap();
+        assert_eq!(geometry.width_px, 1_270);
         let column = 120u16;
         let in_cell = 9u32;
         let x = u32::from(column) * 10 + in_cell + 1;
@@ -312,9 +255,8 @@ mod tests {
         else {
             panic!("expected pane-local pixels");
         };
-        let half = 5;
         assert!(
-            child_x > u32::from(column) * 10 + half,
+            child_x > u32::from(column) * 10 + 5,
             "right-side click slipped into the left half of the cell: {child_x}"
         );
         assert_eq!(child_x, u32::from(column) * 10 + in_cell + 1);
@@ -333,13 +275,6 @@ mod tests {
             .pane_position(ratatui::layout::Rect::new(0, 0, 80, 1), 800, 20),
             Some(Position::Pixels { x: 11, y: 1 })
         );
-    }
-
-    #[test]
-    fn cell_origin_pixel_is_the_one_based_boundary_not_the_cell_index() {
-        assert_eq!(cell_origin_pixel(4, 80, 800), Some(41));
-        assert_eq!(cell_origin_pixel(0, 80, 800), Some(1));
-        assert_ne!(cell_origin_pixel(4, 80, 800), Some(5));
     }
 
     #[test]

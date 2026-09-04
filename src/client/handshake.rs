@@ -54,24 +54,6 @@ pub(super) fn handshake_read_timeout() -> Duration {
     LOCAL_HANDSHAKE_READ_TIMEOUT
 }
 
-/// Exact-geometry SGR 1016 capability advertised to the server.
-///
-/// Independent of direct-kitty / file-frame transport. `herdr --remote`
-/// (`is_remote_client_process`), SSH, and tmux still offer pixel mouse when
-/// the host cell size is known.
-pub(super) fn advertised_pixel_mouse(exact_cell_size: bool) -> bool {
-    exact_cell_size && cfg!(unix)
-}
-
-/// Whether the client should read ioctl pixel geometry.
-///
-/// Client-shell and terminal-attach both need host pixels for honest SGR 1016.
-/// This is not a kitty-graphics / file-frame capability; XTWINOPS query and
-/// direct-kitty stay behind `experimental.kitty_graphics`.
-pub(super) fn pixel_geometry_collection_enabled(client_shell: bool, terminal_attach: bool) -> bool {
-    cfg!(unix) && (client_shell || terminal_attach)
-}
-
 #[cfg(any(unix, test))]
 pub(super) fn direct_graphics_profile_values(
     term_program: &str,
@@ -168,7 +150,7 @@ pub(super) fn do_handshake(
             cell_width_px,
             cell_height_px,
             surface_size,
-            pixel_mouse: advertised_pixel_mouse(exact_cell_size),
+            pixel_mouse: exact_cell_size && cfg!(unix),
             direct_graphics: exact_cell_size
                 && cell_width_px > 0
                 && cell_height_px > 0
@@ -193,7 +175,7 @@ pub(super) fn do_handshake(
             rows,
             cell_width_px,
             cell_height_px,
-            pixel_mouse: advertised_pixel_mouse(exact_cell_size),
+            pixel_mouse: exact_cell_size && cfg!(unix),
         }
     };
     protocol::write_message(stream, &hello)

@@ -83,13 +83,15 @@ pub(super) fn promote_sgr_pixel_position(
     if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
         return position;
     }
-    let Some(x) = crate::input::mouse::cell_origin_pixel(column, cols, width_px) else {
+    let cell_w = width_px / cols as u32;
+    let cell_h = height_px / rows as u32;
+    if cell_w == 0 || cell_h == 0 {
         return position;
-    };
-    let Some(y) = crate::input::mouse::cell_origin_pixel(row, rows, height_px) else {
-        return position;
-    };
-    crate::input::mouse::Position::Pixels { x, y }
+    }
+    crate::input::mouse::Position::Pixels {
+        x: u32::from(column) * cell_w + 1,
+        y: u32::from(row) * cell_h + 1,
+    }
 }
 
 pub(super) fn ghostty_mouse_encoder_for_terminal(
@@ -116,12 +118,7 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
             if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
                 return None;
             }
-            // DECSET 1016 stays SET in the mode bitset even when a later
-            // 1006h wins Ghostty's exclusive mouse_format flag (Bubble Tea
-            // re-enables SGR after the child asked for pixels). Encoding
-            // must follow the 1016 mode: SGR format converts a pixel
-            // position back to cell.x+1, which a 1016 child treats as
-            // pixels and collapses to column 1.
+            // Mode 1016 stays SET after a later 1006h; SGR format would emit cell indices.
             if terminal
                 .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
                 .ok()

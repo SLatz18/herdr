@@ -13,10 +13,7 @@ const DEFAULT_CELL_HEIGHT_PX: u32 = 16;
 
 /// Integer cell size derived from a terminal ioctl pixel extent.
 ///
-/// The extent need not divide evenly by the grid: terminals may include a
-/// fixed window padding leftover (`ws_xpixel - cols * cell`). Pixel mouse
-/// mapping uses this integer pitch (or CSI 16 t when known), not
-/// `index * ws_xpixel / cols`.
+/// Leftover `ws_xpixel - cols * cell` is window padding, not extra pitch.
 pub(super) fn ioctl_cell_size(
     columns: u16,
     rows: u16,

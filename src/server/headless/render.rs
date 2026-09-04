@@ -42,9 +42,6 @@ impl HeadlessServer {
                     let focused = self.shell_focused_runtime(client_id);
                     let child_requests_mouse =
                         focused.is_some_and(|(runtime, _)| runtime.mouse_reporting_enabled());
-                    // Host 1016 follows the focused child's encoding, not kitty
-                    // graphics demand. file_frame / direct-kitty stay gated
-                    // separately; pixel reports are just terminal sequences.
                     let sgr_pixels = client.pixel_mouse
                         && focused.is_some_and(|(runtime, _)| runtime.sgr_pixel_mouse_enabled());
                     Some((

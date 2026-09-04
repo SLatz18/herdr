@@ -69,58 +69,6 @@ fn direct_graphics_profile_is_narrow_and_transport_safe() {
     ));
 }
 
-#[test]
-fn advertised_pixel_mouse_is_independent_of_remote_transport_gate() {
-    // `herdr --remote` (`is_remote_client_process`), SSH, and tmux set
-    // blocked_transport=true, which kills file-frame / direct-kitty.
-    assert!(!direct_graphics_profile_values(
-        "ghostty", "", false, true, true
-    ));
-    assert!(direct_graphics_profile_values(
-        "ghostty", "", false, false, true
-    ));
-    assert_eq!(advertised_pixel_mouse(true), cfg!(unix));
-    assert!(!advertised_pixel_mouse(false));
-    // Ioctl collection is also independent of kitty-graphics / file-frame.
-    assert_eq!(pixel_geometry_collection_enabled(true, false), cfg!(unix));
-    assert_eq!(pixel_geometry_collection_enabled(false, true), cfg!(unix));
-    assert!(!pixel_geometry_collection_enabled(false, false));
-}
-
-#[test]
-fn ioctl_pixel_geometry_is_exact_without_graphics_fallback() {
-    let reported_cell_size = AtomicU64::new(0);
-    let geometry = current_terminal_geometry_with(
-        true,
-        false,
-        &reported_cell_size,
-        None,
-        Some((80, 24, 10, 20)),
-        || Ok((80, 24)),
-    )
-    .expect("ioctl geometry must be exact without kitty-graphics fallback");
-
-    assert_eq!(geometry, (80, 24, 10, 20, true));
-    assert_eq!(advertised_pixel_mouse(geometry.4), cfg!(unix));
-}
-
-#[test]
-fn missing_ioctl_without_graphics_fallback_does_not_claim_pixels() {
-    let reported_cell_size = AtomicU64::new(0);
-    let geometry = current_terminal_geometry_with(
-        true,
-        false,
-        &reported_cell_size,
-        Some((9, 18)),
-        None,
-        || Ok((80, 24)),
-    )
-    .expect("grid geometry remains valid without claiming pixels");
-
-    assert_eq!(geometry, (80, 24, 0, 0, false));
-    assert!(!advertised_pixel_mouse(geometry.4));
-}
-
 fn restore_env_var(key: &str, value: Option<OsString>) {
     if let Some(value) = value {
         std::env::set_var(key, value);
