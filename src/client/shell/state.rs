@@ -970,6 +970,11 @@ pub(super) struct WorkspaceEntry {
 }
 
 impl ClientShellState {
+    #[cfg(test)]
+    pub(crate) fn test_focused_pane_inner_rect(&self) -> Option<ratatui::layout::Rect> {
+        self.hits.panes.first().map(|hit| hit.inner_rect)
+    }
+
     pub(crate) fn new(mut config: ClientShellConfig) -> Self {
         let preferences = config.preferences.clone();
         let local_config_diagnostic = config.startup_config_diagnostic.take();

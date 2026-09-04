@@ -2743,6 +2743,208 @@ async fn client_shell_cell_click_in_column_four_encodes_pixels_when_1016_set() {
     shutdown_test_runtimes(&mut server);
 }
 
+fn client_shell_pixel_pane_with_sidebar(
+    compose_cols: u16,
+    compose_rows: u16,
+    pane_cols: u16,
+    pane_rows: u16,
+    cell_width_px: u32,
+    cell_height_px: u32,
+) -> (
+    crate::client::ClientShellState,
+    crate::input::mouse::HostGeometry,
+) {
+    use crate::api::schema::AgentStatus;
+    use crate::client::{ClientShellConfig, ClientShellState};
+    use crate::config::Config;
+    use crate::protocol::{
+        ClientShellPane, ClientShellSnapshot, ClientShellTab, ClientShellWorkspace, FrameData,
+        PaneSurfaceFrame, PaneSurfacePane, SurfaceRect,
+    };
+    use ratatui::buffer::Buffer;
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(ClientShellSnapshot {
+        boot_id: "boot-1".into(),
+        revision: 1,
+        config_diagnostic: None,
+        product_announcement: None,
+        update_available: None,
+        update_install_command: "herdr update".into(),
+        server_keybindings_toml: None,
+        latest_release_notes_available: false,
+        integration_updates_available: false,
+        worktree_directory: "/tmp/herdr-worktrees".into(),
+        release_notes: None,
+        focused_workspace_id: Some("ws_1".into()),
+        focused_tab_id: Some("tab_1".into()),
+        focused_pane_id: Some("pane_1".into()),
+        tab_bar_right: Vec::new(),
+        tab_bar_right_separator: " ".into(),
+        agent_view_label: None,
+        agent_order: Vec::new(),
+        workspaces: vec![ClientShellWorkspace {
+            workspace_id: "ws_1".into(),
+            active_tab_id: "tab_1".into(),
+            new_workspace_cwd: "/repo".into(),
+            number: 1,
+            label: "client-shell".into(),
+            custom_label: false,
+            branch: Some("main".into()),
+            git_ahead_behind: None,
+            tokens: Vec::new(),
+            worktree: None,
+            focused: true,
+            agent_status: AgentStatus::Idle,
+        }],
+        tabs: vec![ClientShellTab {
+            tab_id: "tab_1".into(),
+            workspace_id: "ws_1".into(),
+            number: 1,
+            label: "1".into(),
+            custom_label: false,
+            zoomed: false,
+            focused: true,
+            agent_status: AgentStatus::Idle,
+        }],
+        panes: vec![ClientShellPane {
+            pane_id: "pane_1".into(),
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            label: None,
+            cwd: Some("/repo".into()),
+            foreground_cwd: Some("/repo".into()),
+            focused: true,
+            right_click_passthrough: false,
+        }],
+        agents: Vec::new(),
+        commands: Vec::new(),
+    }));
+    let surface_buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, pane_cols, pane_rows));
+    let pane_surface = PaneSurfaceFrame {
+        boot_id: "boot-1".into(),
+        projection_revision: 1,
+        surface_revision: 1,
+        frame: FrameData::from_ratatui_buffer_with_hyperlinks(&surface_buffer, None, &[]),
+        panes: vec![PaneSurfacePane {
+            pane_id: "pane_1".into(),
+            content_revision: 0,
+            rect: SurfaceRect {
+                x: 0,
+                y: 0,
+                width: pane_cols,
+                height: pane_rows,
+            },
+            inner_rect: SurfaceRect {
+                x: 0,
+                y: 0,
+                width: pane_cols,
+                height: pane_rows,
+            },
+            scrollbar_rect: None,
+            scroll: None,
+            focused: true,
+            mouse_reporting: true,
+            sgr_pixel_mouse: true,
+            alternate_screen_active: true,
+            pixel_width: u32::from(pane_cols) * cell_width_px,
+            pixel_height: u32::from(pane_rows) * cell_height_px,
+        }],
+        splits: Vec::new(),
+        popup: None,
+        graphics: crate::protocol::SurfaceGraphicsScene::default(),
+    };
+    state.set_pane_surface(pane_surface);
+    state
+        .compose(compose_cols, compose_rows)
+        .expect("composed client-shell frame with sidebar chrome");
+    let geometry = crate::input::mouse::HostGeometry::new(
+        compose_cols,
+        compose_rows,
+        u32::from(compose_cols) * cell_width_px,
+        u32::from(compose_rows) * cell_height_px,
+    )
+    .expect("host geometry");
+    (state, geometry)
+}
+
+#[tokio::test]
+async fn client_shell_host_pixel_csi_reaches_1016_child_as_pixel_sgr() {
+    let mut server = test_headless_server();
+    let mut input_rx =
+        install_focused_test_runtime(&mut server, b"\x1b[?1003h\x1b[?1006h\x1b[?1016h\x1b[?1006h");
+    let pane_id = server.app.session_snapshot().focused_pane_id.unwrap();
+    server.clients.insert(
+        11,
+        ClientConnection::new_with_mode(
+            ClientConnectionMode::ClientShell,
+            (80, 24),
+            crate::kitty_graphics::HostCellSize {
+                width_px: 10,
+                height_px: 20,
+            },
+            1,
+            RenderEncoding::SemanticFrame,
+            None,
+        ),
+    );
+    let client = server.clients.get_mut(&11).expect("shell client");
+    client.pixel_mouse = true;
+    client.host_sgr_pixels_active = Some(true);
+    client.direct_graphics = false;
+    server.foreground_client_id = Some(11);
+    assert!(server.claim_unowned_shell_tab_geometry(11, false));
+    let runtime_pane = server.app.state.workspaces[0].tabs[0].root_pane;
+    server.app.state.workspaces[0].test_runtimes[&runtime_pane].resize(20, 60, 10, 20);
+
+    let (mut shell, geometry) = client_shell_pixel_pane_with_sidebar(80, 24, 60, 20, 10, 20);
+    let inner = shell
+        .test_focused_pane_inner_rect()
+        .expect("composed pane hit");
+    assert!(inner.x > 0, "sidebar chrome must offset the pane");
+    let host_x = u32::from(inner.x + 4) * 10 + 1;
+    let host_y = u32::from(inner.y) * 20 + 1;
+    let report = format!("\x1b[<0;{host_x};{host_y}M");
+    let outcome = shell.handle_pixel_mouse(report.as_bytes(), geometry);
+    let events = match &outcome.requests[..] {
+        [crate::protocol::ClientMessage::ClientShellPaneInput { events, .. }] => events.clone(),
+        other => panic!("expected ClientShell pane input, got {other:?}"),
+    };
+    assert!(
+        matches!(
+            events.as_slice(),
+            [crate::protocol::ClientPaneInputEvent::Mouse {
+                position: crate::protocol::ClientMousePosition::Pixels { x, column: 4, .. },
+                ..
+            }] if *x >= 40 && *x != 5
+        ),
+        "ClientShell must map host pixels into pane-local pixels, not cell indices: {events:?}"
+    );
+
+    let _ = server.handle_server_event(ServerEvent::ClientShellPaneInput {
+        client_id: 11,
+        pane_id,
+        events,
+    });
+
+    let encoded = input_rx
+        .try_recv()
+        .expect("host pixel CSI must reach the child PTY");
+    let body = encoded
+        .strip_prefix(b"\x1b[<0;")
+        .and_then(|rest| rest.strip_suffix(b"M"))
+        .expect("child PTY must receive an SGR press");
+    let x = std::str::from_utf8(body.split(|&byte| byte == b';').next().unwrap_or_default())
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .expect("SGR x");
+    assert!(
+        x >= 40 && x != 5,
+        "child PTY must receive pixel-magnitude SGR (x>>cols), got {encoded:?}"
+    );
+    shutdown_test_runtimes(&mut server);
+}
+
 fn install_focused_test_runtime(
     server: &mut HeadlessServer,
     terminal_bytes: &[u8],

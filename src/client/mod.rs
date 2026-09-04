@@ -23,13 +23,13 @@ mod handshake;
 mod input;
 mod notifications;
 mod shell;
+#[cfg(test)]
+pub(crate) use shell::{ClientShellConfig, ClientShellState};
 mod terminal_geometry;
 mod terminal_sessions;
 mod terminal_setup;
 mod timer;
 
-#[cfg(test)]
-pub(crate) use shell::{ClientShellConfig, ClientShellState};
 pub use terminal_sessions::{run_terminal_session_control, run_terminal_session_observe};
 
 #[cfg(not(windows))]

@@ -116,6 +116,19 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
             if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
                 return None;
             }
+            // DECSET 1016 stays SET in the mode bitset even when a later
+            // 1006h wins Ghostty's exclusive mouse_format flag (Bubble Tea
+            // re-enables SGR after the child asked for pixels). Encoding
+            // must follow the 1016 mode: SGR format converts a pixel
+            // position back to cell.x+1, which a 1016 child treats as
+            // pixels and collapses to column 1.
+            if terminal
+                .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+                .ok()
+                .unwrap_or(false)
+            {
+                encoder.set_format(crate::ghostty::MOUSE_FORMAT_SGR_PIXELS);
+            }
             encoder.set_size(width_px, height_px, width_px / cols, height_px / rows);
         }
     }

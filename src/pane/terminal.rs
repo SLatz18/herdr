@@ -2049,10 +2049,20 @@ impl GhosttyPaneTerminal {
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal, position)?;
         let (x, y) = ghostty_mouse_position_for_terminal(position)?;
         event.set_position(x, y);
-        encoder
+        let bytes = encoder
             .encode(&event)
             .ok()
-            .filter(|bytes| !bytes.is_empty())
+            .filter(|bytes| !bytes.is_empty())?;
+        tracing::debug!(
+            sgr_pixels = core
+                .terminal
+                .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+                .ok(),
+            ?position,
+            encoded = %String::from_utf8_lossy(&bytes),
+            "child PTY mouse report"
+        );
+        Some(bytes)
     }
 
     pub(crate) fn screen_text_snapshot(
@@ -5068,6 +5078,36 @@ mod tests {
 
         assert_eq!(encoded.as_deref(), Some(&b"\x1b[<0;41;1M"[..]));
         assert_ne!(encoded.as_deref(), Some(&b"\x1b[<0;5;1M"[..]));
+    }
+
+    #[test]
+    fn ghostty_mouse_sgr_pixels_survives_later_1006() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.resize(80, 24, 10, 20).unwrap();
+        // Bubble Tea enables 1006, the child asks for 1016, then Bubble Tea
+        // re-sends 1006. Mode 1016 must stay SET and encode must stay pixels.
+        terminal.write(b"\x1b[?1000h\x1b[?1006h\x1b[?1016h\x1b[?1006h");
+        assert!(terminal
+            .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+            .unwrap());
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let encoded = pane.encode_mouse_button(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            crate::input::mouse::Position::Cell { column: 4, row: 0 },
+            crossterm::event::KeyModifiers::empty(),
+        );
+
+        assert_eq!(encoded.as_deref(), Some(&b"\x1b[<0;41;1M"[..]));
+        assert_ne!(encoded.as_deref(), Some(&b"\x1b[<0;5;1M"[..]));
+
+        let exact = pane.encode_mouse_button(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            crate::input::mouse::Position::Pixels { x: 41, y: 1 },
+            crossterm::event::KeyModifiers::empty(),
+        );
+        assert_eq!(exact.as_deref(), Some(&b"\x1b[<0;41;1M"[..]));
     }
 
     #[test]
