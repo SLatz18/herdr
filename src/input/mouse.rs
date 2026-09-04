@@ -24,20 +24,31 @@ impl HostGeometry {
         (cols > 0 && rows > 0 && width_px > 0 && height_px > 0).then_some(Self {
             cols,
             rows,
-            width_px,
-            height_px,
+            // Drop fixed window padding (`ws_xpixel - cols * cell`). Stretching
+            // that leftover as `index * extent / cols` slips SGR-Pixels left.
+            width_px: (width_px / u32::from(cols)).max(1) * u32::from(cols),
+            height_px: (height_px / u32::from(rows)).max(1) * u32::from(rows),
         })
     }
 
     #[cfg(unix)]
-    pub(crate) fn current() -> Option<Self> {
+    pub(crate) fn current_with_cell_size(cell_size: Option<(u32, u32)>) -> Option<Self> {
         let size = crossterm::terminal::window_size().ok()?;
-        Self::new(
-            size.columns,
-            size.rows,
-            u32::from(size.width),
-            u32::from(size.height),
-        )
+        let ioctl_width = u32::from(size.width);
+        let ioctl_height = u32::from(size.height);
+        let (width_px, height_px) = match cell_size {
+            Some((cell_width, cell_height)) => {
+                let width = u32::from(size.columns).saturating_mul(cell_width);
+                let height = u32::from(size.rows).saturating_mul(cell_height);
+                if width > 0 && height > 0 && width <= ioctl_width && height <= ioctl_height {
+                    (width, height)
+                } else {
+                    (ioctl_width, ioctl_height)
+                }
+            }
+            None => (ioctl_width, ioctl_height),
+        };
+        Self::new(size.columns, size.rows, width_px, height_px)
     }
 
     pub(crate) fn cell(self, x: u32, y: u32) -> Option<(u16, u16)> {
@@ -200,8 +211,10 @@ mod tests {
     }
 
     #[test]
-    fn fractional_geometry_maps_exactly_to_pane_pixels() {
+    fn integer_cell_pitch_maps_pane_pixels_without_stretching_padding() {
         let geometry = HostGeometry::new(211, 57, 2_537, 1_429).unwrap();
+        assert_eq!(geometry.width_px, 2_532);
+        assert_eq!(geometry.height_px, 1_425);
         let inner = ratatui::layout::Rect::new(157, 7, 53, 49);
         let start_x = geometry.column_boundary(inner.x).unwrap();
         let end_x = geometry.column_boundary(inner.x + inner.width).unwrap();
@@ -225,6 +238,28 @@ mod tests {
             .pane_position(inner, 636, 1_225),
             Some(Position::Pixels { x: 636, y: 1_225 })
         );
+    }
+
+    #[test]
+    fn padded_ioctl_extent_keeps_late_column_click_in_the_right_half() {
+        // Ghostty-style leftover: 1276px / 127 cols with a true 10px cell.
+        let geometry = HostGeometry::new(127, 24, 1_276, 480).unwrap();
+        assert_eq!(geometry.width_px, 1_270);
+        let column = 120u16;
+        let in_cell = 9u32;
+        let x = u32::from(column) * 10 + in_cell + 1;
+        assert_eq!(geometry.cell(x, 1), Some((column, 0)));
+        let Position::Pixels { x: child_x, .. } = HostPixels { x, y: 1, geometry }
+            .pane_position(ratatui::layout::Rect::new(0, 0, 127, 24), 1_270, 480)
+            .expect("mapped pane pixels")
+        else {
+            panic!("expected pane-local pixels");
+        };
+        assert!(
+            child_x > u32::from(column) * 10 + 5,
+            "right-side click slipped into the left half of the cell: {child_x}"
+        );
+        assert_eq!(child_x, u32::from(column) * 10 + in_cell + 1);
     }
 
     #[test]

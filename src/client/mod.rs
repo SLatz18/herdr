@@ -372,7 +372,7 @@ fn run_client_with_mode(
     let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
     let kitty_graphics_enabled =
         loaded_config.config.experimental.kitty_graphics && client_rendered_shell;
-    let pixel_geometry_enabled = kitty_graphics_enabled || attach_escape.is_some();
+    let pixel_geometry_enabled = cfg!(unix) && (client_rendered_shell || attach_escape.is_some());
     let loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,
@@ -788,10 +788,9 @@ async fn run_client_loop(
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme =
         state.attach_escape.is_none() && should_query_host_terminal_theme();
-    // Terminals behind ConPTY report no pixel size through the ioctl, so ask the
-    // host terminal directly instead of falling back to an assumed cell size.
-    let will_query_host_cell_size = state.attach_escape.is_none()
-        && host_cell_size_query_required(state.kitty_graphics_enabled);
+    // CSI 16 t is the true rendered cell. Ioctl ws_xpixel can include window
+    // padding, so prefer the XTWINOPS reply for host↔pane pixel mapping.
+    let will_query_host_cell_size = host_cell_size_query_required(state.pixel_geometry_enabled);
     let stdin_quit = should_quit.clone();
     let stdin_mouse_capture_active = host_mouse_capture_active.clone();
     let stdin_sgr_pixels_active = host_sgr_pixels_active.clone();
@@ -802,6 +801,8 @@ async fn run_client_loop(
         .lock()
         .map(|matcher| matcher.active_handle())
         .unwrap_or_default();
+    #[cfg(unix)]
+    let stdin_reported_cell_size = reported_cell_size.clone();
     std::thread::spawn(move || {
         input::stdin_reader_loop(
             stdin_tx,
@@ -810,6 +811,8 @@ async fn run_client_loop(
             will_query_host_cell_size,
             stdin_mouse_capture_active,
             stdin_sgr_pixels_active,
+            #[cfg(unix)]
+            stdin_reported_cell_size,
             #[cfg(unix)]
             stdin_direct_response,
             #[cfg(unix)]

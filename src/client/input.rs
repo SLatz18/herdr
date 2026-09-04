@@ -42,6 +42,7 @@ pub fn stdin_reader_loop(
     host_cell_size_query_sent: bool,
     host_mouse_capture_active: Arc<AtomicBool>,
     host_sgr_pixels_active: Arc<AtomicBool>,
+    #[cfg(unix)] reported_cell_size: Arc<std::sync::atomic::AtomicU64>,
     #[cfg(unix)] direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
     #[cfg(unix)] direct_response_active: Arc<AtomicBool>,
 ) {
@@ -64,6 +65,7 @@ pub fn stdin_reader_loop(
         host_cell_size_query_sent,
         host_mouse_capture_active,
         host_sgr_pixels_active,
+        reported_cell_size,
         direct_response,
         direct_response_active,
     );
@@ -77,6 +79,7 @@ fn unix_stdin_reader_loop(
     host_cell_size_query_sent: bool,
     host_mouse_capture_active: Arc<AtomicBool>,
     host_sgr_pixels_active: Arc<AtomicBool>,
+    reported_cell_size: Arc<std::sync::atomic::AtomicU64>,
     direct_response: Arc<std::sync::Mutex<super::direct_graphics::ResponseMatcher>>,
     direct_response_active: Arc<AtomicBool>,
 ) {
@@ -124,7 +127,11 @@ fn unix_stdin_reader_loop(
                 if sgr_pixels {
                     last_geometry = retain_geometry(
                         last_geometry,
-                        crate::input::mouse::HostGeometry::current(),
+                        crate::input::mouse::HostGeometry::current_with_cell_size(
+                            super::terminal_geometry::loaded_reported_cell_size(
+                                &reported_cell_size,
+                            ),
+                        ),
                     );
                 }
                 let filtered = filter_direct_input(

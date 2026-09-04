@@ -11,10 +11,9 @@ use super::ClientLoopEvent;
 const DEFAULT_CELL_WIDTH_PX: u32 = 8;
 const DEFAULT_CELL_HEIGHT_PX: u32 = 16;
 
-/// Average cell size derived from a terminal ioctl pixel extent.
+/// Integer cell size derived from a terminal ioctl pixel extent.
 ///
-/// The extent need not divide evenly by the grid: terminals may include padding,
-/// and pixel mouse coordinates retain the raw extent for proportional mapping.
+/// Leftover `ws_xpixel - cols * cell` is window padding, not extra pitch.
 pub(super) fn ioctl_cell_size(
     columns: u16,
     rows: u16,
@@ -56,6 +55,11 @@ fn unpack_cell_size(packed: u64) -> Option<(u32, u32)> {
     let width_px = (packed >> 32) as u32;
     let height_px = (packed & u64::from(u32::MAX)) as u32;
     (width_px > 0 && height_px > 0).then_some((width_px, height_px))
+}
+
+#[cfg(any(unix, test))]
+pub(super) fn loaded_reported_cell_size(reported_cell_size: &AtomicU64) -> Option<(u32, u32)> {
+    unpack_cell_size(reported_cell_size.load(Ordering::Acquire))
 }
 
 type TerminalGeometry = (u16, u16, u32, u32, bool);
@@ -214,8 +218,8 @@ pub(super) fn should_query_host_cell_size() -> bool {
     !cfg!(windows)
 }
 
-pub(super) fn host_cell_size_query_required(kitty_graphics_enabled: bool) -> bool {
-    kitty_graphics_enabled && should_query_host_cell_size() && ioctl_terminal_geometry().is_none()
+pub(super) fn host_cell_size_query_required(pixel_geometry_enabled: bool) -> bool {
+    pixel_geometry_enabled && should_query_host_cell_size()
 }
 
 pub(super) fn write_host_cell_size_query(mut writer: impl io::Write) -> io::Result<()> {

@@ -391,6 +391,15 @@ fn host_cell_size_query_is_disabled_on_windows() {
 }
 
 #[test]
+fn host_cell_size_query_follows_pixel_geometry_not_kitty_graphics() {
+    assert_eq!(
+        host_cell_size_query_required(true),
+        should_query_host_cell_size()
+    );
+    assert!(!host_cell_size_query_required(false));
+}
+
+#[test]
 fn cell_size_fallback_prefers_reported_then_previous_size() {
     assert_eq!(cell_size_fallback(0, None), (8, 16));
     assert_eq!(cell_size_fallback(0, Some((11, 22))), (11, 22));

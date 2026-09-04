@@ -25,7 +25,7 @@ use super::{
         ghostty_key_event_from_terminal_key, ghostty_mouse_encoder_for_terminal,
         ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_motion_kind,
         ghostty_mouse_event_from_wheel_kind, ghostty_mouse_position_for_terminal,
-        ghostty_prefers_herdr_text_encoding,
+        ghostty_prefers_herdr_text_encoding, promote_sgr_pixel_position,
     },
     kitty_keyboard::KittyKeyboardTracker,
     osc::{
@@ -2045,6 +2045,7 @@ impl GhosttyPaneTerminal {
         if require_any_motion && !core.terminal.mode_get(MODE_MOUSE_ANY_MOTION).ok()? {
             return None;
         }
+        let position = promote_sgr_pixel_position(&core.terminal, position);
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal, position)?;
         let (x, y) = ghostty_mouse_position_for_terminal(position)?;
         event.set_position(x, y);
@@ -5028,7 +5029,7 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_mouse_sgr_pixels_preserves_exact_and_downgrades_cell_input() {
+    fn ghostty_mouse_sgr_pixels_preserves_exact_and_promotes_cell_input() {
         let (tx, _rx) = mpsc::channel(4);
         let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         terminal.resize(80, 24, 10, 20).unwrap();
@@ -5040,14 +5041,45 @@ mod tests {
             crate::input::mouse::Position::Pixels { x: 48, y: 139 },
             crossterm::event::KeyModifiers::empty(),
         );
-        let fallback = pane.encode_mouse_motion(
+        let promoted = pane.encode_mouse_motion(
             crossterm::event::MouseEventKind::Moved,
             crate::input::mouse::Position::Cell { column: 4, row: 6 },
             crossterm::event::KeyModifiers::empty(),
         );
 
         assert_eq!(exact.as_deref(), Some(&b"\x1b[<35;48;139M"[..]));
-        assert_eq!(fallback.as_deref(), Some(&b"\x1b[<35;5;7M"[..]));
+        assert_eq!(promoted.as_deref(), Some(&b"\x1b[<35;41;121M"[..]));
+        assert_ne!(promoted.as_deref(), Some(&b"\x1b[<35;5;7M"[..]));
+    }
+
+    #[test]
+    fn ghostty_mouse_sgr_pixels_survives_later_1006() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.resize(80, 24, 10, 20).unwrap();
+        // Bubble Tea enables 1006, the child asks for 1016, then Bubble Tea
+        // re-sends 1006. Mode 1016 must stay SET and encode must stay pixels.
+        terminal.write(b"\x1b[?1000h\x1b[?1006h\x1b[?1016h\x1b[?1006h");
+        assert!(terminal
+            .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+            .unwrap());
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let encoded = pane.encode_mouse_button(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            crate::input::mouse::Position::Cell { column: 4, row: 0 },
+            crossterm::event::KeyModifiers::empty(),
+        );
+
+        assert_eq!(encoded.as_deref(), Some(&b"\x1b[<0;41;1M"[..]));
+        assert_ne!(encoded.as_deref(), Some(&b"\x1b[<0;5;1M"[..]));
+
+        let exact = pane.encode_mouse_button(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            crate::input::mouse::Position::Pixels { x: 41, y: 1 },
+            crossterm::event::KeyModifiers::empty(),
+        );
+        assert_eq!(exact.as_deref(), Some(&b"\x1b[<0;41;1M"[..]));
     }
 
     #[test]

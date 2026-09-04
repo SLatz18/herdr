@@ -58,6 +58,42 @@ pub(super) fn ghostty_mods_from_key_modifiers(modifiers: crossterm::event::KeyMo
     ghostty_mods
 }
 
+pub(super) fn promote_sgr_pixel_position(
+    terminal: &crate::ghostty::Terminal,
+    position: crate::input::mouse::Position,
+) -> crate::input::mouse::Position {
+    let crate::input::mouse::Position::Cell { column, row } = position else {
+        return position;
+    };
+    if !terminal
+        .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+        .ok()
+        .unwrap_or(false)
+    {
+        return position;
+    }
+    let (Ok(width_px), Ok(height_px), Ok(cols), Ok(rows)) = (
+        terminal.width_px(),
+        terminal.height_px(),
+        terminal.cols(),
+        terminal.rows(),
+    ) else {
+        return position;
+    };
+    if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
+        return position;
+    }
+    let cell_w = width_px / cols as u32;
+    let cell_h = height_px / rows as u32;
+    if cell_w == 0 || cell_h == 0 {
+        return position;
+    }
+    crate::input::mouse::Position::Pixels {
+        x: u32::from(column) * cell_w + 1,
+        y: u32::from(row) * cell_h + 1,
+    }
+}
+
 pub(super) fn ghostty_mouse_encoder_for_terminal(
     terminal: &crate::ghostty::Terminal,
     position: crate::input::mouse::Position,
@@ -81,6 +117,14 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
             let height_px = terminal.height_px().ok()?;
             if width_px == 0 || height_px == 0 || cols == 0 || rows == 0 {
                 return None;
+            }
+            // Mode 1016 stays SET after a later 1006h; SGR format would emit cell indices.
+            if terminal
+                .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+                .ok()
+                .unwrap_or(false)
+            {
+                encoder.set_format(crate::ghostty::MOUSE_FORMAT_SGR_PIXELS);
             }
             encoder.set_size(width_px, height_px, width_px / cols, height_px / rows);
         }
