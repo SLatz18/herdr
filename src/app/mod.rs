@@ -38,6 +38,11 @@ const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500)
 const GIT_REPO_DISCOVERY_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const PENDING_AGENT_RESUME_THEME_WAIT: Duration = Duration::from_millis(750);
+/// Minimum gap between two native agent resumes during a session restore.
+/// Restoring many agent panes at once makes every agent load its tooling in the
+/// same window, which spikes memory hard enough for the OS to kill panes. One
+/// resume per pass, spaced by this interval, keeps the ramp serial.
+const PENDING_AGENT_RESUME_STAGGER: Duration = Duration::from_millis(2500);
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_secs(5);
 
 use ratatui::layout::Rect;
@@ -134,6 +139,9 @@ pub struct App {
     pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
+    /// Earliest instant the next native agent resume may launch. Set after a
+    /// successful resume while candidates remain, so restores ramp serially.
+    pub(crate) pending_agent_resume_next_launch: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     pub(crate) detached_process_children: Vec<std::process::Child>,
@@ -594,6 +602,7 @@ impl App {
             loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
             pending_agent_resume_deadline: None,
+            pending_agent_resume_next_launch: None,
             session_save_deadline: None,
             session_save_thread: None,
             detached_process_children: Vec::new(),
