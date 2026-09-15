@@ -41,6 +41,14 @@ impl App {
     }
 
     pub(crate) fn start_pending_agent_resumes(&mut self, allow_empty_theme: bool) -> bool {
+        // Callers invoke this on every tick, so the stagger has to be enforced
+        // here rather than by them.
+        let now = Instant::now();
+        match self.pending_agent_resume_next_launch {
+            Some(next) if now < next => return false,
+            Some(_) => self.pending_agent_resume_next_launch = None,
+            None => {}
+        }
         let pending = self.pending_agent_resume_candidates();
         let mut changed = false;
         for PendingAgentResumeCandidate {
@@ -55,7 +63,7 @@ impl App {
             if self.terminal_runtimes.get(&terminal_id).is_some() {
                 continue;
             }
-            changed |= self.start_pending_agent_resume(
+            let started = self.start_pending_agent_resume(
                 pane_id,
                 terminal_id,
                 cwd,
@@ -64,6 +72,13 @@ impl App {
                 cols,
                 allow_empty_theme,
             );
+            changed |= started;
+            // Launch at most one agent per pass. The remaining candidates stay
+            // pending and are picked up by later passes, so a restore with many
+            // agent panes ramps them serially instead of all at once.
+            if started {
+                break;
+            }
         }
 
         if changed {
@@ -71,6 +86,10 @@ impl App {
         }
         if !self.has_pending_agent_resumes() || self.pending_agent_resume_candidates().is_empty() {
             self.pending_agent_resume_deadline = None;
+        } else if changed {
+            // Candidates remain after a successful launch. Hold the next one off
+            // until the stagger elapses; the event loop wakes on this instant.
+            self.pending_agent_resume_next_launch = Some(now + super::PENDING_AGENT_RESUME_STAGGER);
         }
         changed
     }
@@ -537,11 +556,35 @@ mod tests {
             Some(std::time::Instant::now() - std::time::Duration::from_millis(1));
 
         assert!(app.start_pending_agent_resumes(false));
+        assert!(
+            app.terminal_runtimes.get(&active_terminal).is_some()
+                ^ app.terminal_runtimes.get(&hidden_terminal).is_some(),
+            "a restore pass should launch exactly one pending agent resume"
+        );
+        assert!(
+            app.pending_agent_resume_next_launch.is_some(),
+            "a remaining pending resume should hold the next launch off"
+        );
+
+        // Callers invoke this every tick, so the stagger must be enforced here.
+        assert!(
+            !app.start_pending_agent_resumes(false),
+            "the next resume must wait for the stagger to elapse"
+        );
+        assert_eq!(
+            app.terminal_runtimes.len(),
+            1,
+            "no second agent may launch while the stagger is pending"
+        );
+
+        app.pending_agent_resume_next_launch =
+            Some(std::time::Instant::now() - std::time::Duration::from_millis(1));
+        assert!(app.start_pending_agent_resumes(false));
         assert!(app.terminal_runtimes.get(&active_terminal).is_some());
         assert!(app.terminal_runtimes.get(&hidden_terminal).is_some());
         assert!(
             app.pending_agent_resume_deadline.is_none(),
-            "launched pending resumes should clear the wakeup deadline"
+            "launching the last pending resume should clear the wakeup deadline"
         );
 
         for (_, runtime) in app.terminal_runtimes.drain() {
